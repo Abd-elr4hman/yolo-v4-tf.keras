@@ -1,3 +1,6 @@
+
+import re #++++++++++++++++++++++++++++++++ new line ++++++++++++++++++++++++++++
+
 import numpy as np
 import cv2
 import pandas as pd
@@ -185,12 +188,23 @@ class DataGenerator(Sequence):
         return X, y_tensor, y_true_boxes_xywh
 
     def get_data(self, annotation_line):
-        line = annotation_line.split()
-        img_path = line[0]
+        # my changes +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+        # line = annotation_line.split()
+        line= re.split("(.jpg)", annotation_line)
+
+        # img_path = line[0]
+        img_path = line[0]+ line[1]
+
         img = cv2.imread(os.path.join(self.folder_path, img_path))[:, :, ::-1]
         ih, iw = img.shape[:2]
         h, w, c = self.target_img_size
-        boxes = np.array([np.array(list(map(float, box.split(',')))) for box in line[1:]], dtype=np.float32) # x1y1x2y2
+
+        boxes= line[-1].split()    #++++++++++++ newline +++++++++++++++
+
+        # boxes = np.array([np.array(list(map(float, box.split(',')))) for box in line[1:]], dtype=np.float32) # x1y1x2y2
+        boxes = np.array([np.array(list(map(float, box.split(',')))) for box in boxes], dtype=np.float32) # x1y1x2y2
+
         scale_w, scale_h = w / iw, h / ih
         img = cv2.resize(img, (w, h))
         image_data = np.array(img) / 255.

@@ -7,6 +7,7 @@ from glob import glob
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.keras import layers, models, optimizers
+from tensorflow.keras.optimizers.schedules import PolynomialDecay
 
 from custom_layers import yolov4_neck, yolov4_head, nms
 from utils import load_weights, get_detection_data, draw_bbox, voc_ap, draw_plot_func, read_txt_to_list
@@ -72,15 +73,24 @@ class Yolov4(object):
                                                 iou_threshold=self.config['iou_threshold'],
                                                 score_threshold=self.config['score_threshold']))
 
-        if load_pretrained and self.weight_path and self.weight_path.endswith('.weights'):
+        #if load_pretrained and self.weight_path and self.weight_path.endswith('.weights') :
+        if load_pretrained and self.weight_path and (self.weight_path.endswith('.weights') or self.weight_path.endswith('.h5')):
             if self.weight_path.endswith('.weights'):
                 load_weights(self.yolo_model, self.weight_path)
                 print(f'load from {self.weight_path}')
             elif self.weight_path.endswith('.h5'):
                 self.training_model.load_weights(self.weight_path)
                 print(f'load from {self.weight_path}')
+        
+        # my addition
+        num_train_steps = 5000.0 * 10.0
+        lr_scheduler = PolynomialDecay(
+        initial_learning_rate=1e-3, end_learning_rate=0.0, decay_steps=num_train_steps
+        )
 
-        self.training_model.compile(optimizer=optimizers.Adam(lr=1e-3),
+
+        #self.training_model.compile(optimizer=optimizers.Adam(lr=1e-3),
+        self.training_model.compile(optimizer=optimizers.Adam(learning_rate=lr_scheduler),
                                     loss={'yolo_loss': lambda y_true, y_pred: y_pred})
 
     def load_model(self, path):
@@ -88,6 +98,33 @@ class Yolov4(object):
         yolov4_output = yolov4_head(self.yolo_model.output, self.num_classes, self.anchors, self.xyscale)
         self.inference_model = models.Model(self.yolo_model.input,
                                             nms(yolov4_output, self.img_size, self.num_classes))  # [boxes, scores, classes, valid_detections]
+
+        # my addition:
+        # training model
+
+        y_true = [
+            layers.Input(name='input_2', shape=(52, 52, 3, (self.num_classes + 5))),  # label small boxes
+            layers.Input(name='input_3', shape=(26, 26, 3, (self.num_classes + 5))),  # label medium boxes
+            layers.Input(name='input_4', shape=(13, 13, 3, (self.num_classes + 5))),  # label large boxes
+            layers.Input(name='input_5', shape=(self.max_boxes, 4)),  # true bboxes
+        ]
+
+        loss_list = tf.keras.layers.Lambda(yolo_loss, name='yolo_loss',
+                                           arguments={'num_classes': self.num_classes,
+                                                      'iou_loss_thresh': self.iou_loss_thresh,
+                                                      'anchors': self.anchors})([*self.yolo_model.output, *y_true])
+
+        self.training_model = models.Model([self.yolo_model.input, *y_true], loss_list)
+
+
+        num_train_steps = 5000.0 * 10.0
+        lr_scheduler = PolynomialDecay(
+        initial_learning_rate=1e-3, end_learning_rate=0.0, decay_steps=num_train_steps
+        )
+
+        #self.training_model.compile(optimizer=optimizers.Adam(lr=1e-3),
+        self.training_model.compile(optimizer=optimizers.Adam(learning_rate=lr_scheduler),
+                                    loss={'yolo_loss': lambda y_true, y_pred: y_pred})
 
     def save_model(self, path):
         self.yolo_model.save(path)
